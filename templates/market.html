@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% load market_extras %}
+
+{% block title %}Market - TradeFlow{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Stock Market</h1>
+
+<div class="row">
+    {% for stock in stocks %}
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">{{ stock.symbol }} - {{ stock.name }}</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-2">
+                    <div class="col-md-12">
+                        <div class="btn-group btn-group-sm w-100" role="group">
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="5m">5m</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="15m">15m</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn active" data-stock="{{ stock.id }}" data-timeframe="1h">1h</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="6h">6h</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="1d">1d</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="1w">1w</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="1M">1M</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="3M">3M</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="1y">1y</button>
+                            <button type="button" class="btn btn-outline-secondary timeframe-btn" data-stock="{{ stock.id }}" data-timeframe="all">All</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <canvas id="chart-{{ stock.id }}" height="150"></canvas>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <h3 class="text-success stock-price" data-stock-id="{{ stock.id }}">¥{{ stock.price|floatformat:2 }}</h3>
+                        <p class="text-muted mb-2">
+                            <small>Volatility: {{ stock.volatility|floatformat:3 }}</small><br>
+                            <small>Drift: {{ stock.drift|floatformat:4 }}</small>
+                        </p>
+                        {% if stock.id in holdings %}
+                        <p class="mb-0">
+                            <strong>You own: {{ holdings|get_item:stock.id }} shares</strong>
+                        </p>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <form method="post" action="{% url 'buy_stock' stock.id %}">
+                            {% csrf_token %}
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="number" name="shares" class="form-control" placeholder="Shares" min="1" required>
+                                <button type="submit" class="btn btn-success">Buy</button>
+                            </div>
+                        </form>
+                        {% if stock.id in holdings %}
+                        <form method="post" action="{% url 'sell_stock' stock.id %}">
+                            {% csrf_token %}
+                            <div class="input-group input-group-sm">
+                                <input type="number" name="shares" class="form-control" placeholder="Shares" min="1" max="{{ holdings|get_item:stock.id }}" required>
+                                <button type="submit" class="btn btn-danger">Sell</button>
+                            </div>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const stockCharts = {};
+const stockData = {};
+const currentTimeframes = {};
+
+{% for stock in stocks %}
+currentTimeframes[{{ stock.id }}] = '1h';
+{% endfor %}
+
+// Load historical data for a stock
+async function loadStockHistory(stockId, timeframe) {
+    try {
+        const response = await fetch(`/api/price-history/${stockId}/?timeframe=${timeframe}`);
+        const data = await response.json();
+        
+        stockData[stockId].labels = data.labels.map(ts => {
+            const date = new Date(ts);
+            if (timeframe === '5m' || timeframe === '15m') {
+                return date.toLocaleTimeString();
+            } else if (timeframe === '1h' || timeframe === '6h') {
+                return date.toLocaleTimeString();
+            } else if (timeframe === '1d' || timeframe === '1w') {
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            } else {
+                return date.toLocaleDateString();
+            }
+        });
+        stockData[stockId].datasets[0].data = data.prices;
+        stockCharts[stockId].update();
+    } catch (error) {
+        console.error('Error loading history:', error);
+    }
+}
+
+// Initialize charts
+{% for stock in stocks %}
+{
+    const ctx = document.getElementById('chart-{{ stock.id }}').getContext('2d');
+    stockData[{{ stock.id }}] = {
+        labels: [],
+        datasets: [{
+            label: '{{ stock.symbol }} Price (¥)',
+            data: [],
+            borderColor: 'rgb(75, 192, 192)',
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            tension: 0.1,
+            pointRadius: 2
+        }]
+    };
+    
+    stockCharts[{{ stock.id }}] = new Chart(ctx, {
+        type: 'line',
+        data: stockData[{{ stock.id }}],
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            scales: {
+                y: {
+                    beginAtZero: false
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+    
+    // Load initial data
+    loadStockHistory({{ stock.id }}, '1h');
+}
+{% endfor %}
+
+// Timeframe button handlers
+document.querySelectorAll('.timeframe-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const stockId = this.dataset.stock;
+        const timeframe = this.dataset.timeframe;
+        
+        // Update active button
+        document.querySelectorAll(`.timeframe-btn[data-stock="${stockId}"]`).forEach(b => {
+            b.classList.remove('active');
+        });
+        this.classList.add('active');
+        
+        // Update timeframe and reload data
+        currentTimeframes[stockId] = timeframe;
+        loadStockHistory(stockId, timeframe);
+    });
+});
+
+// Auto-update prices every 5 seconds
+setInterval(async () => {
+    try {
+        const response = await fetch('/api/market-prices/');
+        const data = await response.json();
+        
+        data.stocks.forEach(stock => {
+            // Update price display
+            const priceElement = document.querySelector(`.stock-price[data-stock-id="${stock.id}"]`);
+            if (priceElement) {
+                priceElement.textContent = '¥' + stock.price.toFixed(2);
+            }
+            
+            // Reload chart data for current timeframe
+            const timeframe = currentTimeframes[stock.id] || '1h';
+            loadStockHistory(stock.id, timeframe);
+        });
+    } catch (error) {
+        console.error('Error updating market prices:', error);
+    }
+}, 5000);
+</script>
+{% endblock %}

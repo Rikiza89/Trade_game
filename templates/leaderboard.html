@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block title %}Leaderboard - TradeFlow{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">🏆 Leaderboard</h1>
+
+<div class="card">
+    <div class="card-body">
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Player</th>
+                    <th>Total Portfolio Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in top_users %}
+                <tr {% if entry.user == user %}class="table-primary"{% endif %}>
+                    <td>
+                        {% if forloop.counter == 1 %}🥇
+                        {% elif forloop.counter == 2 %}🥈
+                        {% elif forloop.counter == 3 %}🥉
+                        {% else %}{{ forloop.counter }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        <strong>{{ entry.user.username }}</strong>
+                        {% if entry.user == user %}<span class="badge bg-primary">You</span>{% endif %}
+                    </td>
+                    <td>¥{{ entry.total_value|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

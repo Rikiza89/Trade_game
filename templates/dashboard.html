@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - TradeFlow{% endblock %}
+
+{% block content %}
+<h1 class="mb-4">Dashboard</h1>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">Cash Balance</h5>
+                <h2 id="balance-display">¥{{ user.balance|floatformat:2 }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Total Portfolio Value</h5>
+                <h2 id="total-value-display">¥{{ user.total_value|floatformat:2 }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <h5 class="card-title">Active Holdings</h5>
+                <h2>{{ holdings|length }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5>Portfolio Value Over Time</h5>
+            </div>
+            <div class="card-body">
+                <canvas id="portfolioChart" height="80"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Your Holdings</h5>
+            </div>
+            <div class="card-body">
+                {% if holdings %}
+                <div class="table-responsive">
+                    <table class="table" id="holdings-table">
+                        <thead>
+                            <tr>
+                                <th>Stock</th>
+                                <th>Shares</th>
+                                <th>Price</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for holding in holdings %}
+                            {% widthratio holding.shares 1 holding.stock.price as value %}
+                            <tr data-stock-id="{{ holding.stock.id }}">
+                                <td><strong>{{ holding.stock.symbol }}</strong></td>
+                                <td class="shares">{{ holding.shares }}</td>
+                                <td class="price">¥{{ holding.stock.price|floatformat:2 }}</td>
+                                <td class="value">¥{{ value|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No holdings yet. Visit the market to start trading!</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Recent Transactions</h5>
+            </div>
+            <div class="card-body">
+                {% if recent_transactions %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Stock</th>
+                                <th>Shares</th>
+                                <th>Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for transaction in recent_transactions %}
+                            <tr>
+                                <td>
+                                    {% if transaction.transaction_type == 'BUY' %}
+                                    <span class="badge bg-success">BUY</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">SELL</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ transaction.stock.symbol }}</td>
+                                <td>{{ transaction.shares }}</td>
+                                <td>¥{{ transaction.price|floatformat:2 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <a href="{% url 'transactions' %}" class="btn btn-sm btn-outline-primary">View All</a>
+                {% else %}
+                <p class="text-muted">No transactions yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Portfolio chart
+const ctx = document.getElementById('portfolioChart').getContext('2d');
+const portfolioData = {
+    labels: [],
+    datasets: [{
+        label: 'Portfolio Value (¥)',
+        data: [],
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        tension: 0.1
+    }]
+};
+
+const portfolioChart = new Chart(ctx, {
+    type: 'line',
+    data: portfolioData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        scales: {
+            y: {
+                beginAtZero: false
+            }
+        }
+    }
+});
+
+// Add initial data point
+const now = new Date();
+portfolioData.labels.push(now.toLocaleTimeString());
+portfolioData.datasets[0].data.push({{ user.total_value|floatformat:2 }});
+portfolioChart.update();
+
+// Auto-update prices every 5 seconds
+setInterval(async () => {
+    try {
+        const response = await fetch('/api/prices/');
+        const data = await response.json();
+        
+        // Update holdings table
+        data.holdings.forEach(holding => {
+            const row = document.querySelector(`tr[data-stock-id="${holding.stock_id}"]`);
+            if (row) {
+                row.querySelector('.price').textContent = '¥' + holding.price.toFixed(2);
+                row.querySelector('.value').textContent = '¥' + holding.value.toFixed(2);
+            }
+        });
+        
+        // Update balance displays
+        document.getElementById('balance-display').textContent = '¥' + data.balance.toFixed(2);
+        document.getElementById('total-value-display').textContent = '¥' + data.total_value.toFixed(2);
+        
+        // Update chart
+        const time = new Date().toLocaleTimeString();
+        portfolioData.labels.push(time);
+        portfolioData.datasets[0].data.push(data.total_value);
+        
+        // Keep only last 20 data points
+        if (portfolioData.labels.length > 20) {
+            portfolioData.labels.shift();
+            portfolioData.datasets[0].data.shift();
+        }
+        
+        portfolioChart.update();
+    } catch (error) {
+        console.error('Error updating prices:', error);
+    }
+}, 5000);
+</script>
+{% endblock %}
